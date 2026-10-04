@@ -226,6 +226,7 @@
   <span class="h-status" id="statusText">connecting</span>
   <div class="h-right">
     <button class="btn-icon" id="clearBtn" title="Clear chat">🗑</button>
+    <a class="btn-icon" href="/sites/" target="_blank" title="Browse built sites">🌐 Sites</a>
     <button class="btn-icon" id="themeBtn" title="Toggle theme">☀️</button>
   </div>
 </header>
@@ -354,10 +355,10 @@
           return
         }
         const content = extractText(m.content)
-        if (!content) return
+        if (!content || !content.trim()) return
+        // Only create ONE bubble per turn — append if already started
         if (currentAssistantEl) {
-          // Append to existing bubble (streaming chunks)
-          currentAssistantEl.querySelector('.msg-content').textContent += content
+          currentAssistantEl.querySelector('.msg-content').textContent = content
         } else {
           currentAssistantEl = appendMsg('assistant', content)
         }

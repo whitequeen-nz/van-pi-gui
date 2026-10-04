@@ -6,9 +6,9 @@
 
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
-import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync, appendFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join, extname } from 'node:path'
+import { dirname, join, extname, relative } from 'node:path'
 import { WebSocketServer } from 'ws'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -18,9 +18,11 @@ const OMP_MODEL = process.env.OMP_MODEL || 'qwen2.5-coder:7b'
 const OMP_CWD = process.env.OMP_CWD || '/opt/van-pi-harness'
 const CLIENT_DIR = join(__dirname, '../client/dist')
 const ARCHIVE_DIR = '/opt/van-pi-gui/archive'
+const SITES_DIR = '/opt/van-pi-gui/test-sites'
 
-// Ensure archive dir exists
+// Ensure dirs exist
 mkdirSync(ARCHIVE_DIR, { recursive: true })
+mkdirSync(SITES_DIR, { recursive: true })
 
 const MIME = {
   '.html': 'text/html',
@@ -40,7 +42,96 @@ const OMP_ENV = {
   TERM: 'dumb',
 }
 
-// ── Static file server ─────────────────────────────────────────────────────
+// ── Sites directory listing + file serving ─────────────────────────────────
+function buildDirListing(dirPath, urlPath) {
+  let entries
+  try { entries = readdirSync(dirPath) } catch { return null }
+
+  const rows = entries.map(name => {
+    const full = join(dirPath, name)
+    let stat
+    try { stat = statSync(full) } catch { return '' }
+    const isDir = stat.isDirectory()
+    const href = urlPath.replace(/\/?$/, '/') + name + (isDir ? '/' : '')
+    const icon = isDir ? '📁' : name.endsWith('.html') ? '🌐' : '📄'
+    const size = isDir ? '—' : `${(stat.size / 1024).toFixed(1)} KB`
+    return `<tr><td>${icon} <a href="${href}">${name}${isDir ? '/' : ''}</a></td><td>${size}</td></tr>`
+  }).join('\n')
+
+  const rel = urlPath.replace(/^\/sites/, '') || '/'
+  const parent = urlPath !== '/sites' && urlPath !== '/sites/'
+    ? `<tr><td>⬆ <a href="../">../</a></td><td>—</td></tr>` : ''
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>van-pi sites${rel}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0d0f14; color: #e2e4ef; padding: 40px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    p { font-size: 13px; color: #6b6f85; margin-bottom: 24px; font-family: monospace; }
+    table { border-collapse: collapse; width: 100%; max-width: 700px; }
+    tr { border-bottom: 1px solid #252836; }
+    td { padding: 10px 14px; font-size: 14px; }
+    td:last-child { color: #6b6f85; font-family: monospace; font-size: 12px; text-align: right; }
+    a { color: #7c6af7; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .back { display: inline-block; margin-top: 28px; font-size: 13px; color: #6b6f85; }
+    .back a { color: #6b6f85; }
+  </style>
+</head>
+<body>
+  <h1>🖥 van-pi · sites</h1>
+  <p>${urlPath}</p>
+  <table>
+    ${parent}
+    ${rows}
+  </table>
+  <div class="back"><a href="/sites/">↑ root</a> · <a href="/">← GUI</a></div>
+</body>
+</html>`
+}
+
+function serveSites(req, res, urlPath) {
+  // Strip /sites prefix to get relative path
+  const rel = urlPath.replace(/^\/sites/, '') || '/'
+  const target = join(SITES_DIR, rel)
+
+  // Path traversal guard
+  if (!target.startsWith(SITES_DIR)) {
+    res.writeHead(403); res.end('Forbidden'); return
+  }
+
+  if (!existsSync(target)) {
+    res.writeHead(404, { 'Content-Type': 'text/html' })
+    res.end(`<body style="background:#0d0f14;color:#e2e4ef;font-family:system-ui;padding:40px">
+      <h2>Not found</h2><p>${rel}</p><a href="/sites/" style="color:#7c6af7">← back to sites</a></body>`)
+    return
+  }
+
+  const stat = statSync(target)
+  if (stat.isDirectory()) {
+    // Check for index.html first
+    const idx = join(target, 'index.html')
+    if (existsSync(idx)) {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end(readFileSync(idx))
+      return
+    }
+    const html = buildDirListing(target, urlPath)
+    res.writeHead(200, { 'Content-Type': 'text/html' })
+    res.end(html)
+    return
+  }
+
+  const mime = MIME[extname(target)] || 'application/octet-stream'
+  res.writeHead(200, { 'Content-Type': mime })
+  res.end(readFileSync(target))
+}
+
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
@@ -79,6 +170,14 @@ function serveStatic(req, res) {
 
 // ── HTTP server ────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
+  const urlPath = req.url.split('?')[0]
+
+  // Sites browser
+  if (urlPath === '/sites' || urlPath.startsWith('/sites/')) {
+    serveSites(req, res, urlPath)
+    return
+  }
+
   // Archive endpoint
   if (req.method === 'POST' && req.url === '/archive') {
     try {
