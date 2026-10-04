@@ -14,7 +14,7 @@ import { WebSocketServer } from 'ws'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 7302)
 const OMP_BIN = process.env.OMP_BIN || '/root/.bun/bin/omp'
-const OMP_MODEL = process.env.OMP_MODEL || 'qwen3.6:35b'
+const OMP_MODEL = process.env.OMP_MODEL || 'qwen2.5-coder:7b'
 const OMP_CWD = process.env.OMP_CWD || '/opt/van-pi-harness'
 const CLIENT_DIR = join(__dirname, '../client/dist')
 
