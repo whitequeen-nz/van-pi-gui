@@ -414,6 +414,9 @@
   }
 
   // ── UI helpers ────────────────────────────────────────────────────────────
+  const MSG_CAP = 50
+  const archive = []
+
   function appendMsg(role, text) {
     const div = document.createElement('div')
     div.className = `msg ${role}`
@@ -422,9 +425,38 @@
       ? `<div class="msg-role">${roleLabel}</div><div class="msg-content">${escHtml(text)}</div>`
       : `<div class="msg-content">${escHtml(text)}</div>`
     messages.appendChild(div)
+    pruneMessages()
     scrollBottom()
     return div
   }
+
+  function pruneMessages() {
+    const all = messages.querySelectorAll('.msg')
+    if (all.length <= MSG_CAP) return
+    const toRemove = all.length - MSG_CAP
+    for (let i = 0; i < toRemove; i++) {
+      const el = all[i]
+      archive.push({
+        ts: new Date().toISOString(),
+        role: [...el.classList].find(c => c !== 'msg') || 'unknown',
+        text: el.querySelector('.msg-content')?.textContent || ''
+      })
+      el.remove()
+    }
+    if (archive.length % 20 === 0) flushArchive()
+  }
+
+  function flushArchive() {
+    if (!archive.length) return
+    const batch = archive.splice(0)
+    fetch('/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: batch })
+    }).catch(() => {})
+  }
+
+  window.addEventListener('beforeunload', flushArchive)
 
   function showTyping() {
     hideTyping()

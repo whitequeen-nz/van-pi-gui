@@ -6,7 +6,7 @@
 
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, extname } from 'node:path'
 import { WebSocketServer } from 'ws'
@@ -17,6 +17,10 @@ const OMP_BIN = process.env.OMP_BIN || '/root/.bun/bin/omp'
 const OMP_MODEL = process.env.OMP_MODEL || 'qwen2.5-coder:7b'
 const OMP_CWD = process.env.OMP_CWD || '/opt/van-pi-harness'
 const CLIENT_DIR = join(__dirname, '../client/dist')
+const ARCHIVE_DIR = '/opt/van-pi-gui/archive'
+
+// Ensure archive dir exists
+mkdirSync(ARCHIVE_DIR, { recursive: true })
 
 const MIME = {
   '.html': 'text/html',
@@ -37,6 +41,15 @@ const OMP_ENV = {
 }
 
 // ── Static file server ─────────────────────────────────────────────────────
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', reject)
+  })
+}
+
 function serveStatic(req, res) {
   const url = req.url.split('?')[0]
   const safePath = url === '/' ? '/index.html' : url
@@ -65,7 +78,28 @@ function serveStatic(req, res) {
 }
 
 // ── HTTP server ────────────────────────────────────────────────────────────
-const server = createServer((req, res) => serveStatic(req, res))
+const server = createServer(async (req, res) => {
+  // Archive endpoint
+  if (req.method === 'POST' && req.url === '/archive') {
+    try {
+      const body = await readBody(req)
+      const { messages } = JSON.parse(body)
+      if (Array.isArray(messages) && messages.length) {
+        const date = new Date().toISOString().slice(0, 10)
+        const file = join(ARCHIVE_DIR, `chat-${date}.jsonl`)
+        const lines = messages.map(m => JSON.stringify(m)).join('\n') + '\n'
+        appendFileSync(file, lines, 'utf8')
+        console.log(`[van-pi-gui] Archived ${messages.length} messages → ${file}`)
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"ok":true}')
+    } catch (e) {
+      res.writeHead(400); res.end('bad request')
+    }
+    return
+  }
+  serveStatic(req, res)
+})
 const wss = new WebSocketServer({ server })
 
 // ── WebSocket bridge ───────────────────────────────────────────────────────
