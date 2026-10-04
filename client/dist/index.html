@@ -337,8 +337,6 @@
 
       case 'turn_start':
         hideTyping()
-        currentAssistantEl = appendMsg('assistant', '')
-        currentAssistantEl.querySelector('.msg-content').innerHTML = ''
         setRunning(true)
         return
 
@@ -347,20 +345,50 @@
         setRunning(false)
         return
 
+      // omp RPC: content arrives in message_end for assistant role
+      case 'message_end': {
+        const m = msg.message
+        if (!m || m.role !== 'assistant') return
+        if (m.errorMessage) {
+          appendMsg('error', `omp: ${m.errorMessage}`)
+          return
+        }
+        const content = extractText(m.content)
+        if (!content) return
+        if (currentAssistantEl) {
+          // Append to existing bubble (streaming chunks)
+          currentAssistantEl.querySelector('.msg-content').textContent += content
+        } else {
+          currentAssistantEl = appendMsg('assistant', content)
+        }
+        scrollBottom()
+        return
+      }
+
+      // Streaming delta (content_block_delta) — omp may also emit these
+      case 'content_block_delta':
+        if (msg.delta?.text) {
+          if (!currentAssistantEl) currentAssistantEl = appendMsg('assistant', '')
+          currentAssistantEl.querySelector('.msg-content').textContent += msg.delta.text
+          scrollBottom()
+        }
+        return
+
       case 'message_update':
-        if (currentAssistantEl && msg.content) {
-          const content = extractText(msg.content)
+        if (msg.message?.role === 'assistant' && msg.message.content) {
+          const content = extractText(msg.message.content)
+          if (!content) return
+          if (!currentAssistantEl) currentAssistantEl = appendMsg('assistant', '')
           currentAssistantEl.querySelector('.msg-content').textContent = content
           scrollBottom()
         }
         return
 
       case 'tool_execution_start':
-        appendMsg('tool', `▶ ${msg.toolName}`)
+        appendMsg('tool', `▶ ${msg.toolName || 'tool'}`)
         return
 
       case 'tool_execution_end':
-        // update last tool msg or just leave it
         return
 
       case 'bash_execution_update':
