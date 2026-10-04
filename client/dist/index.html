@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>van-pi · omp</title>
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #13161e;
+      --surface2: #1a1d28;
+      --border: #252836;
+      --accent: #7c6af7;
+      --accent2: #5b4fe0;
+      --text: #e2e4ef;
+      --muted: #6b6f85;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --user-bubble: #1e1b3a;
+      --agent-bubble: #161920;
+      --font: system-ui, sans-serif;
+      --mono: 'SF Mono', 'Fira Code', monospace;
+    }
+    [data-theme="light"] {
+      --bg: #f4f5f8;
+      --surface: #ffffff;
+      --surface2: #eef0f5;
+      --border: #dde0ea;
+      --text: #1a1c2a;
+      --muted: #7a7e96;
+      --user-bubble: #eeeaff;
+      --agent-bubble: #f8f9fc;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.65;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .h-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .h-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .h-dot.error { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .h-title { font-size: 15px; font-weight: 700; letter-spacing: 0.01em; }
+    .h-model {
+      font-size: 12px; font-family: var(--mono);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 5px; padding: 2px 8px; color: var(--muted);
+    }
+    .h-status { font-size: 12px; color: var(--muted); margin-left: 4px; }
+    .h-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .btn-icon {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 10px; font-size: 13px;
+      color: var(--muted); cursor: pointer; transition: border-color 0.15s;
+    }
+    .btn-icon:hover { border-color: var(--accent); color: var(--text); }
+
+    /* ── MESSAGES ── */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #messages::-webkit-scrollbar { width: 6px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .msg {
+      max-width: 820px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user {
+      background: var(--user-bubble);
+      border: 1px solid rgba(124,106,247,0.2);
+      align-self: flex-end;
+      max-width: 640px;
+    }
+    .msg.assistant { background: var(--agent-bubble); border: 1px solid var(--border); }
+    .msg.system {
+      background: transparent; border: none;
+      color: var(--muted); font-family: var(--mono); font-size: 12px;
+      text-align: center; padding: 4px 0;
+    }
+    .msg.tool {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      font-family: var(--mono); font-size: 12px;
+      color: var(--muted);
+    }
+    .msg.error {
+      background: rgba(248,113,113,0.06);
+      border: 1px solid rgba(248,113,113,0.2);
+      color: var(--red);
+      font-family: var(--mono); font-size: 12px;
+    }
+    .msg-role {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+    }
+    .msg.user .msg-role { color: rgba(124,106,247,0.7); }
+
+    /* Typing indicator */
+    .typing { display: flex; gap: 4px; align-items: center; padding: 14px; }
+    .typing span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); opacity: 0.4;
+      animation: blink 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink { 0%,80%,100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+    /* Code blocks */
+    .msg code { font-family: var(--mono); font-size: 12px; background: var(--surface2); padding: 1px 5px; border-radius: 3px; }
+    .msg pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 6px 0; }
+    .msg pre code { background: transparent; padding: 0; }
+
+    /* ── INPUT ── */
+    .input-area {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 14px 20px;
+      flex-shrink: 0;
+    }
+    .input-row {
+      max-width: 820px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    textarea {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      resize: none;
+      max-height: 200px;
+      min-height: 44px;
+      line-height: 1.5;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    textarea:focus { border-color: var(--accent); }
+    textarea::placeholder { color: var(--muted); }
+    #sendBtn {
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      color: white; cursor: pointer; font-size: 18px;
+      flex-shrink: 0;
+      transition: background 0.15s, transform 0.1s;
+    }
+    #sendBtn:hover:not(:disabled) { background: var(--accent2); }
+    #sendBtn:active:not(:disabled) { transform: scale(0.95); }
+    #sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #abortBtn {
+      background: rgba(248,113,113,0.12);
+      border: 1px solid rgba(248,113,113,0.3);
+      border-radius: 10px; height: 44px; padding: 0 14px;
+      color: var(--red); cursor: pointer; font-size: 13px;
+      flex-shrink: 0; display: none;
+      transition: background 0.15s;
+    }
+    #abortBtn:hover { background: rgba(248,113,113,0.2); }
+    #abortBtn.visible { display: block; }
+    .input-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; max-width: 820px; margin-left: auto; margin-right: auto; }
+
+    /* ── TOOL CALL DETAILS ── */
+    details.tool-detail { margin-top: 4px; }
+    details.tool-detail summary { cursor: pointer; color: var(--accent); font-size: 11px; list-style: none; }
+    details.tool-detail summary::before { content: '▶ '; }
+    details.tool-detail[open] summary::before { content: '▼ '; }
+    details.tool-detail pre { margin-top: 4px; max-height: 200px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="h-dot" id="statusDot"></div>
+  <span class="h-title">van-pi</span>
+  <span class="h-model" id="modelBadge">connecting…</span>
+  <span class="h-status" id="statusText">connecting</span>
+  <div class="h-right">
+    <button class="btn-icon" id="clearBtn" title="Clear chat">🗑</button>
+    <button class="btn-icon" id="themeBtn" title="Toggle theme">☀️</button>
+  </div>
+</header>
+
+<div id="messages"></div>
+
+<div class="input-area">
+  <div class="input-row">
+    <textarea id="prompt" placeholder="Send a message to omp…" rows="1"></textarea>
+    <button id="abortBtn">⏹ Abort</button>
+    <button id="sendBtn" disabled>↑</button>
+  </div>
+  <div class="input-hint">⏎ send · Shift+⏎ newline · Esc abort</div>
+</div>
+
+<script>
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  const THEME_KEY = 'van-pi-theme'
+  const themeBtn = document.getElementById('themeBtn')
+  const html = document.documentElement
+  applyTheme(localStorage.getItem(THEME_KEY) || 'dark')
+  themeBtn.addEventListener('click', () => {
+    const next = html.dataset.theme === 'light' ? 'dark' : 'light'
+    applyTheme(next); localStorage.setItem(THEME_KEY, next)
+  })
+  function applyTheme(t) {
+    html.dataset.theme = t
+    themeBtn.textContent = t === 'light' ? '🌙' : '☀️'
+  }
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const messages   = document.getElementById('messages')
+  const promptEl   = document.getElementById('prompt')
+  const sendBtn    = document.getElementById('sendBtn')
+  const abortBtn   = document.getElementById('abortBtn')
+  const clearBtn   = document.getElementById('clearBtn')
+  const statusDot  = document.getElementById('statusDot')
+  const statusText = document.getElementById('statusText')
+  const modelBadge = document.getElementById('modelBadge')
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let ws = null
+  let reqId = 0
+  let currentAssistantEl = null
+  let isRunning = false
+  let pendingCmds = new Map()
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    ws = new WebSocket(`${proto}//${location.host}`)
+
+    ws.addEventListener('open', () => {
+      setStatus('connected', true)
+      sendBtn.disabled = false
+      promptEl.focus()
+      // Get initial state
+      send({ type: 'get_state' })
+    })
+
+    ws.addEventListener('message', (ev) => {
+      let msg
+      try { msg = JSON.parse(ev.data) } catch { return }
+      handleMessage(msg)
+    })
+
+    ws.addEventListener('close', () => {
+      setStatus('disconnected', false)
+      sendBtn.disabled = true
+      setTimeout(connect, 3000) // auto-reconnect
+    })
+
+    ws.addEventListener('error', () => {
+      setStatus('error', false, true)
+    })
+  }
+
+  function send(obj) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj))
+    }
+  }
+
+  function sendCommand(type, extra = {}) {
+    const id = `req-${++reqId}`
+    send({ id, type, ...extra })
+    return id
+  }
+
+  // ── Message handling ──────────────────────────────────────────────────────
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case 'server_log':
+        appendMsg('system', msg.message)
+        return
+
+      case 'response':
+        if (msg.command === 'get_state' && msg.success && msg.data) {
+          modelBadge.textContent = msg.data.model || 'omp'
+        }
+        if (msg.command === 'prompt' && msg.success) {
+          // run started — show typing indicator
+          showTyping()
+        }
+        if (msg.command === 'abort') {
+          setRunning(false)
+        }
+        return
+
+      case 'turn_start':
+        hideTyping()
+        currentAssistantEl = appendMsg('assistant', '')
+        currentAssistantEl.querySelector('.msg-content').innerHTML = ''
+        setRunning(true)
+        return
+
+      case 'turn_end':
+        currentAssistantEl = null
+        setRunning(false)
+        return
+
+      case 'message_update':
+        if (currentAssistantEl && msg.content) {
+          const content = extractText(msg.content)
+          currentAssistantEl.querySelector('.msg-content').textContent = content
+          scrollBottom()
+        }
+        return
+
+      case 'tool_execution_start':
+        appendMsg('tool', `▶ ${msg.toolName}`)
+        return
+
+      case 'tool_execution_end':
+        // update last tool msg or just leave it
+        return
+
+      case 'bash_execution_update':
+        if (msg.output) {
+          const last = messages.querySelector('.msg.tool:last-child .msg-content')
+          if (last) last.textContent += msg.output
+        }
+        return
+
+      case 'error':
+        setRunning(false)
+        appendMsg('error', `Error: ${msg.message || JSON.stringify(msg)}`)
+        return
+    }
+  }
+
+  function extractText(content) {
+    if (typeof content === 'string') return content
+    if (Array.isArray(content)) {
+      return content.map(b => b.text || b.content || '').join('')
+    }
+    return JSON.stringify(content)
+  }
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  function appendMsg(role, text) {
+    const div = document.createElement('div')
+    div.className = `msg ${role}`
+    const roleLabel = role === 'user' ? 'You' : role === 'assistant' ? 'omp' : role === 'tool' ? '⚙ tool' : ''
+    div.innerHTML = roleLabel
+      ? `<div class="msg-role">${roleLabel}</div><div class="msg-content">${escHtml(text)}</div>`
+      : `<div class="msg-content">${escHtml(text)}</div>`
+    messages.appendChild(div)
+    scrollBottom()
+    return div
+  }
+
+  function showTyping() {
+    hideTyping()
+    const div = document.createElement('div')
+    div.id = 'typing'
+    div.className = 'typing'
+    div.innerHTML = '<span></span><span></span><span></span>'
+    messages.appendChild(div)
+    scrollBottom()
+  }
+  function hideTyping() {
+    document.getElementById('typing')?.remove()
+  }
+
+  function scrollBottom() {
+    messages.scrollTop = messages.scrollHeight
+  }
+
+  function setStatus(text, connected, isError) {
+    statusText.textContent = text
+    statusDot.className = 'h-dot' + (isError ? ' error' : connected ? ' connected' : '')
+  }
+
+  function setRunning(running) {
+    isRunning = running
+    sendBtn.disabled = running
+    abortBtn.classList.toggle('visible', running)
+    if (!running) hideTyping()
+  }
+
+  function escHtml(t) {
+    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  }
+
+  // ── Send message ──────────────────────────────────────────────────────────
+  function submitPrompt() {
+    const text = promptEl.value.trim()
+    if (!text || isRunning || !ws || ws.readyState !== WebSocket.OPEN) return
+    appendMsg('user', text)
+    promptEl.value = ''
+    autoResize()
+    sendCommand('prompt', { message: text })
+    showTyping()
+    setRunning(true)
+  }
+
+  sendBtn.addEventListener('click', submitPrompt)
+
+  abortBtn.addEventListener('click', () => {
+    sendCommand('abort')
+    setRunning(false)
+  })
+
+  clearBtn.addEventListener('click', () => {
+    messages.innerHTML = ''
+    sendCommand('new_session')
+  })
+
+  promptEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitPrompt() }
+    if (e.key === 'Escape') { sendCommand('abort'); setRunning(false) }
+  })
+
+  promptEl.addEventListener('input', autoResize)
+
+  function autoResize() {
+    promptEl.style.height = 'auto'
+    promptEl.style.height = Math.min(promptEl.scrollHeight, 200) + 'px'
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  connect()
+</script>
+</body>
+</html>
